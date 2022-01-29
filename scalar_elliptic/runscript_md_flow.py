@@ -277,13 +277,14 @@ class EllipticProblem(pp.IncompressibleFlow):
                 'AMG_type': haznics.SA_AMG,       #haznics.UA_AMG
                 'aggregation_type': haznics.VMB,  #haznics.VMB  haznics.HEC
                 #'coarse_dof': 100,
+                'coarse_solver':haznics.SOLVER_UMFPACK,
             }
             haznics.param_amg_set_dict(params_amg, amgparam)
 
             params_its = {
                 'linear_print_level': 3,
                 'linear_itsolver_type': haznics.SOLVER_VFGMRES,
-                'linear_precond_type': 21,
+                'linear_precond_type': 20,
                 'linear_maxit': 100,
                 'linear_restart': 100,
                 'linear_tol': 1e-6,
@@ -315,9 +316,11 @@ class EllipticProblem(pp.IncompressibleFlow):
 # Tuning of permeabilities, to check parameter robustness. The matrix permeability
 # is always 1.
 # Change this to alter the permeability in the fractures
-fracture_permeability = 10
+fracture_permeability = 1.e-6
+#print(fracture_permeability)
 # Change this to alter permeability between fractures and matrix
-matrix_fracture_permeability = 1
+matrix_fracture_permeability = 1.e6
+#print(matrix_fracture_permeability)
 
 ## CHANGE GRID HERE
 # Implemented values for grid type:
@@ -327,7 +330,9 @@ matrix_fracture_permeability = 1
 #   4) '3d_regular' - 3d problem, Rubik's cube type geometry
 #
 # See below for switching
-grid_type = "single_fracture"
+#grid_type = "single_fracture"
+grid_type = "2d_benchmark_complex"
+#grid_type = "3d_regular"
 
 # SET MESH SIZE
 # If you tweak mesh_size_bound, it will adjust the mesh size at the
@@ -339,7 +344,7 @@ if grid_type == "no_fracture":
     # consistency
     mesh_args = {"mesh_size_bound": 0.1, "mesh_size_frac": 0.1}
 elif grid_type == "single_fracture":
-    mesh_args = {"mesh_size_bound": 0.0025, "mesh_size_frac": 0.0025}
+    mesh_args = {"mesh_size_bound": 0.1, "mesh_size_frac": 0.1}
 elif grid_type == "2d_benchmark_complex":
     # Use 40 to get a rough mesh (similar to the coarse case set up previously)
     # 20 gives a mesh with reasonable cell geometries (in the eye norm)

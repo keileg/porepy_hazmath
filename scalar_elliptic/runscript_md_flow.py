@@ -234,16 +234,12 @@ class EllipticProblem(pp.IncompressibleFlow):
                     for g, _ in self.gb
                 ]
             )
-            #print(pressure_dofs)
-            #print(pressure_dofs.dtype)
             mortar_dofs = np.hstack(
                 [
                     dof_manager.grid_and_variable_to_dofs(e, self.mortar_variable)
                     for e, _ in self.gb.edges()
                 ]
             )
-            #print(mortar_dofs)
-            #print(mortar_dofs.dtype)
 
             # This is where the hazmath magic should enter.
             #raise NotImplementedError("This is where the magic is missing")
@@ -261,7 +257,8 @@ class EllipticProblem(pp.IncompressibleFlow):
             pressure_dofs32 = pressure_dofs.astype(np.int32)
             pressure_dofs_haz = haznics.create_ivector(pressure_dofs32)
             mortar_dofs_haz = haznics.ivector()
-            mortar_dofs_haz = haznics.create_ivector(mortar_dofs.astype(np.int32))
+            mortar_dofs32 = mortar_dofs.astype(np.int32)
+            mortar_dofs_haz = haznics.create_ivector(mortar_dofs32)
 
             # if needed, output matrix, right hand side, and dofs
             #haznics.dcsr_write_dcoo('A.dat', A_haz)
@@ -287,8 +284,8 @@ class EllipticProblem(pp.IncompressibleFlow):
                 'linear_print_level': 3,
                 'linear_itsolver_type': haznics.SOLVER_VFGMRES,
                 'linear_precond_type': 21,
-                'linear_maxit': 50,
-                'linear_restart': 50,
+                'linear_maxit': 100,
+                'linear_restart': 100,
                 'linear_tol': 1e-6,
             }
             haznics.param_linear_solver_set_dict(params_its, itsparam)
@@ -318,7 +315,7 @@ class EllipticProblem(pp.IncompressibleFlow):
 # Tuning of permeabilities, to check parameter robustness. The matrix permeability
 # is always 1.
 # Change this to alter the permeability in the fractures
-fracture_permeability = 1
+fracture_permeability = 10
 # Change this to alter permeability between fractures and matrix
 matrix_fracture_permeability = 1
 
@@ -342,7 +339,7 @@ if grid_type == "no_fracture":
     # consistency
     mesh_args = {"mesh_size_bound": 0.1, "mesh_size_frac": 0.1}
 elif grid_type == "single_fracture":
-    mesh_args = {"mesh_size_bound": 0.05, "mesh_size_frac": 0.05}
+    mesh_args = {"mesh_size_bound": 0.0025, "mesh_size_frac": 0.0025}
 elif grid_type == "2d_benchmark_complex":
     # Use 40 to get a rough mesh (similar to the coarse case set up previously)
     # 20 gives a mesh with reasonable cell geometries (in the eye norm)

@@ -24,6 +24,23 @@ class EllipticProblem(pp.IncompressibleFlow):
 
         self.use_mpfa = params.get("use_mpfa", True)
 
+    def prepare_simulation(self) -> None:
+        tic = time.time()
+        print("Create grid")
+        self.create_grid()
+        print(f"Grid finished. Elapsed time: {time.time() - tic}")
+
+        self._set_parameters()
+        self._assign_variables()
+        self._assign_discretizations()
+        self._initial_condition()
+
+        self._export()
+        print("Discretize")
+        tic = time.time()
+        self._discretize()
+        print(f"Discretization finished. Elapsed time: {time.time() - tic}")
+
     def create_grid(self) -> pp.GridBucket:
 
         tic = time.time()
@@ -85,6 +102,9 @@ class EllipticProblem(pp.IncompressibleFlow):
 
         tic = time.time()
 
+        for g, d in self.gb:
+            param = d[pp.PARAMETERS][self.parameter_key]
+            param["max_memory"] = 5e7
         # Assign diffusivity in the normal direction of the fractures.
         for e, data_edge in self.gb.edges():
             mg = data_edge["mortar_grid"]
@@ -233,6 +253,7 @@ class EllipticProblem(pp.IncompressibleFlow):
             A, b = self._eq_manager.assemble()
 
             tic = time.time()
+            print(f"System size: {b.size}")
             x = sps.linalg.spsolve(A, b)
             print("Solved linear system in {} seconds".format(time.time() - tic))
             return x

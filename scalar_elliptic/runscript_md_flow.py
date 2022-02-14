@@ -43,8 +43,6 @@ class EllipticProblem(pp.IncompressibleFlow):
 
     def create_grid(self) -> pp.GridBucket:
 
-        tic = time.time()
-
         grid_type = self.params["grid_type"]
         mesh_size = self.params["mesh_size"]
 
@@ -91,16 +89,19 @@ class EllipticProblem(pp.IncompressibleFlow):
 
             self.gb = gb
             self.box = network.domain
+        elif grid_type == "3d_field":
+            network = pp.fracture_importer.network_3d_from_csv(
+                "3d_field_fracture_data.csv"
+            )
+            gb = network.mesh(mesh_size)
+
+            self.gb = gb
+            self.box = network.domain
         else:
             raise ValueError(f"Unknown grid type {grid_type}")
 
-        print("Create grid in {} seconds".format(time.time() - tic))
-
-
     def _set_parameters(self):
         super()._set_parameters()
-
-        tic = time.time()
 
         for g, d in self.gb:
             param = d[pp.PARAMETERS][self.parameter_key]
@@ -111,9 +112,6 @@ class EllipticProblem(pp.IncompressibleFlow):
             data_edge[pp.PARAMETERS][self.parameter_key][
                 "normal_diffusivity"
             ] = self.matrix_fracture_perm * np.ones(mg.num_cells)
-
-        print("Set parameters in {} seconds".format(time.time() - tic))
-
 
     def _bc_values(self, g: pp.Grid) -> np.ndarray:
         """Boundary conditions: Something non-boring.
@@ -156,8 +154,6 @@ class EllipticProblem(pp.IncompressibleFlow):
         Gravity is included, but may be set to 0 through assignment of the vector_source
         parameter.
         """
-
-        tic = time.time()
 
         gb = self.gb
         dof_manager = pp.DofManager(gb)
@@ -240,9 +236,6 @@ class EllipticProblem(pp.IncompressibleFlow):
                 }
             )
 
-        print("Assign discretization in {} seconds".format(time.time() - tic))
-
-
     def _export(self):
         pass
 
@@ -314,7 +307,7 @@ class EllipticProblem(pp.IncompressibleFlow):
             params_amg = {
                 'print_level': 3,
                 'AMG_type': haznics.SA_AMG,       #haznics.UA_AMG
-                'aggregation_type': haznics.VMB,  #haznics.VMB  haznics.HEC
+                'aggregation_type': haznics.HEC,  #haznics.VMB  haznics.HEC
                 #'cycle_type': haznics.V_CYCLE,
                 #'coarse_dof': 100,
                 'coarse_solver':haznics.SOLVER_UMFPACK,
@@ -325,8 +318,8 @@ class EllipticProblem(pp.IncompressibleFlow):
                 'linear_print_level': 3,
                 'linear_itsolver_type': haznics.SOLVER_VFGMRES,
                 'linear_precond_type': 21,
-                'linear_maxit': 100,
-                'linear_restart': 100,
+                'linear_maxit': 500,
+                'linear_restart': 500,
                 'linear_tol': 1e-6,
             }
             haznics.param_linear_solver_set_dict(params_its, itsparam)
@@ -356,10 +349,10 @@ class EllipticProblem(pp.IncompressibleFlow):
 # Tuning of permeabilities, to check parameter robustness. The matrix permeability
 # is always 1.
 # Change this to alter the permeability in the fractures
-fracture_permeability = 1.e4
+fracture_permeability = 1.e0
 #print(fracture_permeability)
 # Change this to alter permeability between fractures and matrix
-matrix_fracture_permeability = 1.e4
+matrix_fracture_permeability = 1.e0
 #print(matrix_fracture_permeability)
 
 ## CHANGE GRID HERE
@@ -372,7 +365,8 @@ matrix_fracture_permeability = 1.e4
 # See below for switching
 #grid_type = "single_fracture"
 #grid_type = "2d_benchmark_complex"
-grid_type = "3d_regular"
+#grid_type = "3d_regular"
+grid_type = "3d_field"
 
 # SET MESH SIZE
 # If you tweak mesh_size_bound, it will adjust the mesh size at the
@@ -384,7 +378,7 @@ if grid_type == "no_fracture":
     # consistency
     mesh_args = {"mesh_size_bound": 0.1, "mesh_size_frac": 0.1}
 elif grid_type == "single_fracture":
-    mesh_args = {"mesh_size_bound": 0.01, "mesh_size_frac": 0.01}
+    mesh_args = {"mesh_size_bound": 0.005, "mesh_size_frac": 0.005}
 elif grid_type == "2d_benchmark_complex":
     # Use 40 to get a rough mesh (similar to the coarse case set up previously)
     # 20 gives a mesh with reasonable cell geometries (in the eye norm)
@@ -392,6 +386,8 @@ elif grid_type == "2d_benchmark_complex":
     mesh_args = {"mesh_size_bound": 5, "mesh_size_frac": 5}
 elif grid_type == "3d_regular":
     mesh_args = {"mesh_size_bound": 0.05, "mesh_size_frac": 0.05, "mesh_size_min": 0.05}
+elif grid_type == "3d_field":
+    mesh_args = {"mesh_size_bound": 100, "mesh_size_frac": 100, "mesh_size_min": 100}
 #
 ## CHANGE SOLVER HERE
 #solver = "direct"

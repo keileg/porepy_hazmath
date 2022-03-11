@@ -13,6 +13,7 @@ import porepy as pp
 
 import haznics
 
+
 class EllipticProblem(pp.IncompressibleFlow):
     def __init__(self, params: Dict) -> None:
 
@@ -55,7 +56,7 @@ class EllipticProblem(pp.IncompressibleFlow):
             network = pp.FractureNetwork2d(domain=domain)
 
             # Construct mixed-dimensional grid
-            gb = network.mesh(mesh_args=mesh_args)
+            gb = network.mesh(mesh_args=mesh_size)
             gb.compute_geometry()
             self.gb = gb
             self.box = domain
@@ -68,7 +69,7 @@ class EllipticProblem(pp.IncompressibleFlow):
             network = pp.FractureNetwork2d(pts=p, edges=edge, domain=domain)
 
             # Construct mixed-dimensional grid
-            gb = network.mesh(mesh_args=mesh_args)
+            gb = network.mesh(mesh_args=mesh_size)
             gb.compute_geometry()
             self.gb = gb
             self.box = domain
@@ -83,7 +84,8 @@ class EllipticProblem(pp.IncompressibleFlow):
             self.box = network.domain
         elif grid_type == "3d_regular":
             network = pp.fracture_importer.network_3d_from_csv(
-                "3d_regular_fracture_data.csv"
+                "3d_regular_fracture_data.csv",
+                check_convexity=False,
             )
             gb = network.mesh(mesh_size)
 
@@ -91,7 +93,16 @@ class EllipticProblem(pp.IncompressibleFlow):
             self.box = network.domain
         elif grid_type == "3d_field":
             network = pp.fracture_importer.network_3d_from_csv(
-                "3d_field_fracture_data.csv"
+                "3d_field_fracture_data.csv",
+                check_convexity=False,
+            )
+            gb = network.mesh(mesh_size)
+
+            self.gb = gb
+            self.box = network.domain
+        elif grid_type == "3d_field":
+            network = pp.fracture_importer.network_3d_from_csv(
+                "3d_field_fracture_data.csv", check_convexity=False
             )
             gb = network.mesh(mesh_size)
 
@@ -178,10 +189,11 @@ class EllipticProblem(pp.IncompressibleFlow):
         p = self._eq_manager.merge_variables([(g, self.variable) for g in grid_list])
 
         has_edge = len(edge_list) > 0
-
+        tic_proj = time.time()
         mortar_proj = pp.ad.MortarProjections(
             edges=edge_list, grids=grid_list, gb=self.gb, nd=1
         )
+        print(f"time for projections: {time.time() - tic_proj}")
 
         robin_ad = pp.ad.RobinCouplingAd(self.parameter_key, edge_list)
         if has_edge:
@@ -272,7 +284,7 @@ class EllipticProblem(pp.IncompressibleFlow):
             )
 
             # This is where the hazmath magic should enter.
-            #raise NotImplementedError("This is where the magic is missing")
+            # raise NotImplementedError("This is where the magic is missing")
 
             # assemble
             tic = time.time()
@@ -280,10 +292,10 @@ class EllipticProblem(pp.IncompressibleFlow):
             print("Assemble linear system in {} seconds".format(time.time() - tic))
 
             # cast to hazmath
-            A_haz = haznics.create_matrix(A.data, A.indices, A.indptr,  A.shape[1])
+            A_haz = haznics.create_matrix(A.data, A.indices, A.indptr, A.shape[1])
             b_haz = haznics.create_dvector(b)
             u_haz = haznics.dvector()
-            haznics.dvec_alloc(b.shape[0],u_haz)
+            haznics.dvec_alloc(b.shape[0], u_haz)
 
             pressure_dofs_haz = haznics.ivector()
             pressure_dofs32 = pressure_dofs.astype(np.int32)
@@ -293,11 +305,11 @@ class EllipticProblem(pp.IncompressibleFlow):
             mortar_dofs_haz = haznics.create_ivector(mortar_dofs32)
 
             # if needed, output matrix, right hand side, and dofs
-            #haznics.dcsr_write_dcoo('A.dat', A_haz)
-            #haznics.dvector_write('b.dat', b_haz)
-            #haznics.iarray_print(pressure_dofs_haz.val, pressure_dofs_haz.row);
-            #haznics.ivector_write('pressure_dofs.dat', pressure_dofs_haz)
-            #haznics.ivector_write('mortar_dofs.dat', mortar_dofs_haz)
+            # haznics.dcsr_write_dcoo('A.dat', A_haz)
+            # haznics.dvector_write('b.dat', b_haz)
+            # haznics.iarray_print(pressure_dofs_haz.val, pressure_dofs_haz.row);
+            # haznics.ivector_write('pressure_dofs.dat', pressure_dofs_haz)
+            # haznics.ivector_write('mortar_dofs.dat', mortar_dofs_haz)
 
             # initialize parameters
             amgparam = haznics.AMG_param()
@@ -305,23 +317,23 @@ class EllipticProblem(pp.IncompressibleFlow):
 
             # set parameters
             params_amg = {
-                'print_level': 3,
-                'AMG_type': haznics.SA_AMG,       #haznics.UA_AMG
-                'aggregation_type': haznics.VMB,  #haznics.VMB  haznics.HEC
-                'cycle_type': haznics.V_CYCLE,
+                "print_level": 3,
+                "AMG_type": haznics.SA_AMG,  # haznics.UA_AMG
+                "aggregation_type": haznics.VMB,  # haznics.VMB  haznics.HEC
+                "cycle_type": haznics.V_CYCLE,
                 #'coarse_dof': 100,
-                'coarse_solver':haznics.SOLVER_UMFPACK,
+                "coarse_solver": haznics.SOLVER_UMFPACK,
                 #'Schwarz_levels': 0,
             }
             haznics.param_amg_set_dict(params_amg, amgparam)
 
             params_its = {
-                'linear_print_level': 3,
-                'linear_itsolver_type': haznics.SOLVER_VFGMRES,
-                'linear_precond_type': 21,
-                'linear_maxit': 200,
-                'linear_restart': 200,
-                'linear_tol': 1e-6,
+                "linear_print_level": 3,
+                "linear_itsolver_type": haznics.SOLVER_VFGMRES,
+                "linear_precond_type": 21,
+                "linear_maxit": 200,
+                "linear_restart": 200,
+                "linear_tol": 1e-6,
             }
             haznics.param_linear_solver_set_dict(params_its, itsparam)
 
@@ -329,10 +341,17 @@ class EllipticProblem(pp.IncompressibleFlow):
             haznics.param_amg_print(amgparam)
             haznics.param_linear_solver_print(itsparam)
 
-
             # solve
             tic = time.time()
-            haznics.linear_solver_dcsr_krylov_md_scalar_elliptic(A_haz, b_haz, u_haz, itsparam, amgparam, pressure_dofs_haz, mortar_dofs_haz)
+            haznics.linear_solver_dcsr_krylov_md_scalar_elliptic(
+                A_haz,
+                b_haz,
+                u_haz,
+                itsparam,
+                amgparam,
+                pressure_dofs_haz,
+                mortar_dofs_haz,
+            )
             print("Solved linear system in {} seconds".format(time.time() - tic))
 
             return u_haz.to_ndarray()
@@ -352,11 +371,15 @@ class EllipticProblem(pp.IncompressibleFlow):
 # Tuning of permeabilities, to check parameter robustness. The matrix permeability
 # is always 1.
 # Change this to alter the permeability in the fractures
-fracture_permeability = 1.e0
-#print(fracture_permeability)
+fracture_permeability = 1.0e0
+# print(fracture_permeability)
 # Change this to alter permeability between fractures and matrix
-matrix_fracture_permeability = 1.e0
-#print(matrix_fracture_permeability)
+matrix_fracture_permeability = 1.0e0
+# print(matrix_fracture_permeability)
+# print(fracture_permeability)
+# Change this to alter permeability between fractures and matrix
+matrix_fracture_permeability = 1.0e4
+# print(matrix_fracture_permeability)
 
 ## CHANGE GRID HERE
 # Implemented values for grid type:
@@ -366,10 +389,10 @@ matrix_fracture_permeability = 1.e0
 #   4) '3d_regular' - 3d problem, Rubik's cube type geometry
 #
 # See below for switching
-grid_type = "single_fracture"
-#grid_type = "2d_benchmark_complex"
-#grid_type = "3d_regular"
-#grid_type = "3d_field"
+# grid_type = "single_fracture"
+# grid_type = "2d_benchmark_complex"
+# grid_type = "3d_regular"
+grid_type = "3d_field"
 
 # SET MESH SIZE
 # If you tweak mesh_size_bound, it will adjust the mesh size at the
@@ -393,10 +416,10 @@ elif grid_type == "3d_field":
     mesh_args = {"mesh_size_bound": 400, "mesh_size_frac": 400, "mesh_size_min": 400}
 #
 ## CHANGE SOLVER HERE
-#solver = "direct"
+# solver = "direct"
 # Uncomment the next line to activate hazmath. This will make the code crash
 # at the place where the hazmath interface should be implemented.
-solver = 'hazmath'
+solver = "hazmath"
 solver_options = {"solver": solver}
 
 

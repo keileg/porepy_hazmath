@@ -367,8 +367,8 @@ matrix_fracture_permeability_range = [1.e-4, 1.e0, 1.e4]
 #   4) '3d_regular' - 3d problem, Rubik's cube type geometry
 #
 # See below for switching
-grid_type = "single_fracture"
-#grid_type = "2d_benchmark_complex"
+#grid_type = "single_fracture"
+grid_type = "2d_benchmark_complex"
 #grid_type = "3d_regular"
 #grid_type = "3d_field"
 

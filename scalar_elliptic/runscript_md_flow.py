@@ -307,10 +307,11 @@ class EllipticProblem(pp.IncompressibleFlow):
             params_amg = {
                 'print_level': 3,
                 'AMG_type': haznics.SA_AMG,       #haznics.UA_AMG
-                'aggregation_type': haznics.HEC,  #haznics.VMB  haznics.HEC
-                #'cycle_type': haznics.V_CYCLE,
+                'aggregation_type': haznics.VMB,  #haznics.VMB  haznics.HEC
+                'cycle_type': haznics.V_CYCLE,
                 #'coarse_dof': 100,
                 'coarse_solver':haznics.SOLVER_UMFPACK,
+                #'Schwarz_levels': 0,
             }
             haznics.param_amg_set_dict(params_amg, amgparam)
 
@@ -318,8 +319,8 @@ class EllipticProblem(pp.IncompressibleFlow):
                 'linear_print_level': 3,
                 'linear_itsolver_type': haznics.SOLVER_VFGMRES,
                 'linear_precond_type': 21,
-                'linear_maxit': 500,
-                'linear_restart': 500,
+                'linear_maxit': 200,
+                'linear_restart': 200,
                 'linear_tol': 1e-6,
             }
             haznics.param_linear_solver_set_dict(params_its, itsparam)
@@ -328,6 +329,8 @@ class EllipticProblem(pp.IncompressibleFlow):
             haznics.param_amg_print(amgparam)
             haznics.param_linear_solver_print(itsparam)
 
+
+            # solve
             tic = time.time()
             haznics.linear_solver_dcsr_krylov_md_scalar_elliptic(A_haz, b_haz, u_haz, itsparam, amgparam, pressure_dofs_haz, mortar_dofs_haz)
             print("Solved linear system in {} seconds".format(time.time() - tic))
@@ -363,10 +366,10 @@ matrix_fracture_permeability = 1.e0
 #   4) '3d_regular' - 3d problem, Rubik's cube type geometry
 #
 # See below for switching
-#grid_type = "single_fracture"
+grid_type = "single_fracture"
 #grid_type = "2d_benchmark_complex"
 #grid_type = "3d_regular"
-grid_type = "3d_field"
+#grid_type = "3d_field"
 
 # SET MESH SIZE
 # If you tweak mesh_size_bound, it will adjust the mesh size at the
@@ -378,7 +381,7 @@ if grid_type == "no_fracture":
     # consistency
     mesh_args = {"mesh_size_bound": 0.1, "mesh_size_frac": 0.1}
 elif grid_type == "single_fracture":
-    mesh_args = {"mesh_size_bound": 0.005, "mesh_size_frac": 0.005}
+    mesh_args = {"mesh_size_bound": 0.5, "mesh_size_frac": 0.5}
 elif grid_type == "2d_benchmark_complex":
     # Use 40 to get a rough mesh (similar to the coarse case set up previously)
     # 20 gives a mesh with reasonable cell geometries (in the eye norm)
@@ -387,7 +390,7 @@ elif grid_type == "2d_benchmark_complex":
 elif grid_type == "3d_regular":
     mesh_args = {"mesh_size_bound": 0.05, "mesh_size_frac": 0.05, "mesh_size_min": 0.05}
 elif grid_type == "3d_field":
-    mesh_args = {"mesh_size_bound": 100, "mesh_size_frac": 100, "mesh_size_min": 100}
+    mesh_args = {"mesh_size_bound": 400, "mesh_size_frac": 400, "mesh_size_min": 400}
 #
 ## CHANGE SOLVER HERE
 #solver = "direct"

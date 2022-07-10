@@ -1,4 +1,4 @@
-"""Set up a simple 
+"""Set up a simple
 """
 from typing import Dict, Optional
 import time
@@ -7,7 +7,7 @@ import scipy.sparse.linalg as spla
 import numpy as np
 import porepy as pp
 
-# import haznics
+import haznics
 
 
 class MechanicsProblem(pp.ContactMechanics):
@@ -172,23 +172,83 @@ class MechanicsProblem(pp.ContactMechanics):
         else:
             A, b = self.assembler.assemble_matrix_rhs()
 
-        if self.linear_solver == "direct":
+
+        if self.params["solver_options"]["solver"] == "direct":
+            print("Solving the linear system using direct solver")
             return spla.spsolve(A, b)
-        else:
-            # hazmath
-            raise NotImplementedError("Not that far yet")
+        else: # hazmath
+            print("Solving the linear system using HAZmath solver")
+
+            # cast to hazmath
+            A_haz = haznics.create_matrix(A.data, A.indices, A.indptr, A.shape[1])
+            b_haz = haznics.create_dvector(b)
+            u_haz = haznics.dvector()
+            haznics.dvec_alloc(b.shape[0], u_haz)
+
+            # if needed, output matrix, right hand side, and dofs
+            #haznics.dcsr_write_dcoo('A.dat', A_haz)
+            #haznics.dvector_write('b.dat', b_haz)
+
+            # convert to BSR format
+            A_haz_bsr = haznics.dcsr_2_dbsr(A_haz, 3)
+
+            # initialize parameters
+            amgparam = haznics.AMG_param()
+            itsparam = haznics.linear_itsolver_param()
+
+            # set parameters
+            params_amg = {
+                "print_level": 3,
+                "AMG_type": haznics.UA_AMG,  # haznics.UA_AMG
+                "aggregation_type": haznics.HEC,  # haznics.VMB  haznics.HEC
+                "cycle_type": haznics.W_CYCLE,
+                "coarse_dof": 300,
+                "coarse_solver": haznics.SOLVER_UMFPACK,
+                #'Schwarz_levels': 0,
+            }
+            haznics.param_amg_set_dict(params_amg, amgparam)
+
+            params_its = {
+                "linear_print_level": 3,
+                "linear_itsolver_type": haznics.SOLVER_VFGMRES,
+                "linear_precond_type": 2,
+                "linear_maxit": 200,
+                "linear_restart": 200,
+                "linear_tol": 1e-6,
+            }
+            haznics.param_linear_solver_set_dict(params_its, itsparam)
+
+            # if needed, print parameters
+            haznics.param_amg_print(amgparam)
+            haznics.param_linear_solver_print(itsparam)
+
+            # solve
+            haznics.linear_solver_dbsr_krylov_amg(A_haz_bsr, b_haz, u_haz, itsparam,amgparam)
+
+            return u_haz.to_ndarray()
 
 
-mesh_args = {"mesh_size_bound": 0.2, "mesh_size_frac": 0.2, "mesh_size_min": 0.05}
+mesh_args = {"mesh_size_bound": 0.2, "mesh_size_frac": 0.2, "mesh_size_min": 0.2}
 
 
 mesh_type = "2d_no_fracture"
-# mesh_type = "2d_single_fracture"
-# mesh_type = "3d_no_fracture"
-# mesh_type = "3d_single_fracture"
+#mesh_type = "2d_single_fracture"
+#mesh_type = "3d_no_fracture"
+#mesh_type = "3d_single_fracture"
 
-model_params = {"grid_type": mesh_type, "mesh_size": mesh_args}
+fracture_permeability = 1.0e0
+matrix_fracture_permeability = 1.0e0
 
+solver = "direct"
+solver_options = {"solver": solver}
+
+model_params = {
+    "grid_type": mesh_type,
+    "mesh_size": mesh_args,
+    "solver_options": solver_options,
+    "fracture_perm": fracture_permeability,
+    "matrix_fracture_perm": matrix_fracture_permeability,
+}
 
 model = MechanicsProblem(model_params)
 

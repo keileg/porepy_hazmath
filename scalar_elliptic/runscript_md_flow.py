@@ -376,10 +376,7 @@ fracture_permeability = 1.0e0
 # Change this to alter permeability between fractures and matrix
 matrix_fracture_permeability = 1.0e0
 # print(matrix_fracture_permeability)
-# print(fracture_permeability)
-# Change this to alter permeability between fractures and matrix
-matrix_fracture_permeability = 1.0e4
-# print(matrix_fracture_permeability)
+
 
 ## CHANGE GRID HERE
 # Implemented values for grid type:

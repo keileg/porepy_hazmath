@@ -27,6 +27,9 @@ class MechanicsProblem(pp.ContactMechanics):
         grid_type = self.params["grid_type"]
         mesh_size = self.params["mesh_size"]
 
+        tic = time.time()
+        print("Generate mesh")
+
         if grid_type == "2d_no_fracture":
 
             # Domain is unit square
@@ -37,7 +40,6 @@ class MechanicsProblem(pp.ContactMechanics):
 
             # Construct mixed-dimensional grid
             mdg = network.mesh(mesh_args=mesh_size)
-            mdg.compute_geometry()
             self.box = domain
         elif grid_type == "2d_single_fracture":
             # Domain is unit square
@@ -49,8 +51,15 @@ class MechanicsProblem(pp.ContactMechanics):
 
             # Construct mixed-dimensional grid
             mdg = network.mesh(mesh_args=mesh_size)
-            mdg.compute_geometry()
             self.box = domain
+
+        elif grid_type == "2d_benchmark_complex":
+
+            network = pp.fracture_importer.network_2d_from_csv(
+                "../scalar_elliptic/2d_benchmark_fracture_data.csv"
+            )
+            mdg = network.mesh(mesh_size)
+            self.box = network.domain
 
         if grid_type == "3d_no_fracture":
 
@@ -62,7 +71,6 @@ class MechanicsProblem(pp.ContactMechanics):
 
             # Construct mixed-dimensional grid
             mdg = network.mesh(mesh_args=mesh_size)
-            mdg.compute_geometry()
             self.box = domain
 
         elif grid_type == "3d_single_fracture":
@@ -81,9 +89,30 @@ class MechanicsProblem(pp.ContactMechanics):
 
             # Construct mixed-dimensional grid
             mdg = network.mesh(mesh_args=mesh_size)
-            mdg.compute_geometry()
             self.box = domain
 
+        elif grid_type == "3d_regular":
+            network = pp.fracture_importer.network_3d_from_csv(
+                "../scalar_elliptic/3d_regular_fracture_data.csv",
+                check_convexity=False,
+            )
+            mdg = network.mesh(mesh_size)
+
+            self.mdg = mdg
+            self.box = network.domain
+        elif grid_type == "3d_field":
+            network = pp.fracture_importer.network_3d_from_csv(
+                "../scalar_elliptic/3d_field_fracture_data.csv",
+                check_convexity=False,
+            )
+            mdg = network.mesh(mesh_size)
+
+            self.mdg = mdg
+            self.box = network.domain
+        else:
+            raise ValueError(f"Unknown grid type {grid_type}")
+
+        mdg.compute_geometry()
         self.faces_split = len(mdg.subdomains(dim=mdg.dim_max() - 1)) > 0
 
         g = mdg.subdomains(dim=mdg.dim_max())[0]
@@ -92,6 +121,8 @@ class MechanicsProblem(pp.ContactMechanics):
         self.mdg = mdg_reduced
 
         pp.contact_conditions.set_projections(self.mdg)
+
+        print(f"Done. Ellapsed time {time.time() - tic}")
 
     #    def after_newton_convergence(
     #        self, solution: np.ndarray, errors: float, iteration_counter: int
@@ -165,6 +196,13 @@ class MechanicsProblem(pp.ContactMechanics):
         for g, d in mdg.subdomains(return_data=True):
             d[pp.PRIMARY_VARIABLES] = {self.displacement_variable: {"cells": self.nd}}
 
+    def _discretize(self) -> None:
+        """Discretize all terms"""
+        tic = time.time()
+        print("Discretize")
+        self._eq_manager.discretize(self.mdg)
+        print("Done. Elapsed time {}".format(time.time() - tic))
+
     def _assign_discretizations(self) -> None:
         """
         Assign discretizations to the nodes and edges of the grid bucket.
@@ -202,10 +240,7 @@ class MechanicsProblem(pp.ContactMechanics):
 
     def assemble_and_solve_linear_system(self, tol: float) -> np.ndarray:
 
-        if self._use_ad:
-            A, b = self._eq_manager.assemble()
-        else:
-            A, b = self.assembler.assemble_matrix_rhs()
+        A, b = self._eq_manager.assemble()
 
         if self.params["solver_options"]["solver"] == "direct":
             print("Solving the linear system using direct solver")
@@ -264,16 +299,40 @@ class MechanicsProblem(pp.ContactMechanics):
             return u_haz.to_ndarray()
 
 
-mesh_args = {"mesh_size_bound": 0.1, "mesh_size_frac": 0.1, "mesh_size_min": 0.1}
-
-
-mesh_type = "2d_no_fracture"
+# mesh_type = "2d_no_fracture"
 # mesh_type = "2d_single_fracture"
+mesh_type = "2d_benchmark_complex"
 # mesh_type = "3d_no_fracture"
-mesh_type = "3d_single_fracture"
+# mesh_type = "3d_single_fracture"
+mesh_type = "3d_regular"
+mesh_type = "3d_field"
+
+if mesh_type == "2d_no_fracture":
+    # In this case, mesh_size_frac will not be used, but it is needed for
+    # consistency
+    mesh_args = {"mesh_size_bound": 0.1, "mesh_size_frac": 0.1}
+elif mesh_type == "2d_single_fracture":
+    mesh_args = {"mesh_size_bound": 0.5, "mesh_size_frac": 0.5}
+elif mesh_type == "2d_benchmark_complex":
+    # Use 40 to get a rough mesh (similar to the coarse case set up previously)
+    # 20 gives a mesh with reasonable cell geometries (in the eye norm)
+    # 10 is a refined version again, this time with more standard refinement
+    mesh_args = {"mesh_size_bound": 40, "mesh_size_frac": 40}
+if mesh_type == "3d_no_fracture":
+    # In this case, mesh_size_frac will not be used, but it is needed for
+    # consistency
+    mesh_args = {"mesh_size_bound": 0.1, "mesh_size_frac": 0.1}
+
+elif mesh_type == "3d_single_fracture":
+    mesh_args = {"mesh_size_bound": 0.1, "mesh_size_frac": 0.1, "mesh_size_min": 0.1}
+elif mesh_type == "3d_regular":
+    mesh_args = {"mesh_size_bound": 0.05, "mesh_size_frac": 0.05, "mesh_size_min": 0.05}
+elif mesh_type == "3d_field":
+    mesh_args = {"mesh_size_bound": 400, "mesh_size_frac": 400, "mesh_size_min": 400}
+
 
 # Change lame parameters here
-lame_lambda = 1.0e0
+lame_lambda = 1.0e-1
 lame_mu = 1.0e0
 
 solver = "direct"

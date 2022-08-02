@@ -7,13 +7,19 @@ import scipy.sparse.linalg as spla
 import numpy as np
 import porepy as pp
 
-import haznics
+try:
+    import haznics
+except:
+    pass
 
 
 class MechanicsProblem(pp.ContactMechanics):
     def __init__(self, params: Optional[Dict] = None):
 
         super().__init__(params)
+
+        self.lame_lambda = params.get("lame_lambda", 1)
+        self.lame_mu = params.get("lame_mu", 1)
 
         self._use_ad = True
 
@@ -30,8 +36,8 @@ class MechanicsProblem(pp.ContactMechanics):
             network = pp.FractureNetwork2d(domain=domain)
 
             # Construct mixed-dimensional grid
-            gb = network.mesh(mesh_args=mesh_size)
-            gb.compute_geometry()
+            mdg = network.mesh(mesh_args=mesh_size)
+            mdg.compute_geometry()
             self.box = domain
         elif grid_type == "2d_single_fracture":
             # Domain is unit square
@@ -42,8 +48,8 @@ class MechanicsProblem(pp.ContactMechanics):
             network = pp.FractureNetwork2d(pts=p, edges=edge, domain=domain)
 
             # Construct mixed-dimensional grid
-            gb = network.mesh(mesh_args=mesh_size)
-            gb.compute_geometry()
+            mdg = network.mesh(mesh_args=mesh_size)
+            mdg.compute_geometry()
             self.box = domain
 
         if grid_type == "3d_no_fracture":
@@ -55,8 +61,8 @@ class MechanicsProblem(pp.ContactMechanics):
             network = pp.FractureNetwork3d(domain=domain)
 
             # Construct mixed-dimensional grid
-            gb = network.mesh(mesh_args=mesh_size)
-            gb.compute_geometry()
+            mdg = network.mesh(mesh_args=mesh_size)
+            mdg.compute_geometry()
             self.box = domain
 
         elif grid_type == "3d_single_fracture":
@@ -70,22 +76,22 @@ class MechanicsProblem(pp.ContactMechanics):
                     [0.0, 0.0, 0.0, 0.0],
                 ]
             )
-            fracs = [pp.Fracture(p)]
+            fracs = [pp.PlaneFracture(p)]
             network = pp.FractureNetwork3d(fracs, domain=domain)
 
             # Construct mixed-dimensional grid
-            gb = network.mesh(mesh_args=mesh_size)
-            gb.compute_geometry()
+            mdg = network.mesh(mesh_args=mesh_size)
+            mdg.compute_geometry()
             self.box = domain
 
-        self.faces_split = len(gb.grids_of_dimension(gb.dim_max() - 1)) > 0
+        self.faces_split = len(mdg.subdomains(dim=mdg.dim_max() - 1)) > 0
 
-        g = gb.grids_of_dimension(gb.dim_max())
-        gb_reduced = pp.GridBucket()
-        gb_reduced.add_nodes(g)
-        self.gb = gb_reduced
+        g = mdg.subdomains(dim=mdg.dim_max())[0]
+        mdg_reduced = pp.MixedDimensionalGrid()
+        mdg_reduced.add_subdomains([g])
+        self.mdg = mdg_reduced
 
-        pp.contact_conditions.set_projections(self.gb)
+        pp.contact_conditions.set_projections(self.mdg)
 
     #    def after_newton_convergence(
     #        self, solution: np.ndarray, errors: float, iteration_counter: int
@@ -93,6 +99,33 @@ class MechanicsProblem(pp.ContactMechanics):
     #        # Distribute to pp.STATE
     #        self.dof_manager.distribute_variable(values=solution, additive=False)
     #        self.convergence_status = True
+
+    def _set_parameters(self):
+        super()._set_parameters()
+
+        for g, d in self.mdg.subdomains(return_data=True):
+            param = d[pp.PARAMETERS][self.mechanics_parameter_key]
+            param["max_memory"] = 5e7
+
+    def _stiffness_tensor(self, sd: pp.Grid) -> pp.FourthOrderTensor:
+        """Fourth order stress tensor.
+
+
+        Parameters
+        ----------
+        sd : pp.Grid
+            Matrix grid.
+
+        Returns
+        -------
+        pp.FourthOrderTensor
+            Cell-wise representation of the stress tensor.
+
+        """
+        # Rock parameters
+        lam = self.lame_lambda * np.ones(sd.num_cells)
+        mu = self.lame_mu * np.ones(sd.num_cells)
+        return pp.FourthOrderTensor(mu, lam)
 
     def _bc_type(self, g: pp.Grid) -> pp.BoundaryConditionVectorial:
         """Define type of boundary conditions: Dirichlet on all global boundaries.
@@ -112,7 +145,7 @@ class MechanicsProblem(pp.ContactMechanics):
         """Set homogeneous conditions on all boundary faces,
         but non-zero on fracture faces"""
         # Values for all Nd components, facewise
-        values = np.zeros((self._Nd, g.num_faces))
+        values = np.zeros((self.nd, g.num_faces))
         all_bf = g.get_boundary_faces()
         if self.faces_split:
             frac_face = g.tags["fracture_faces"]
@@ -128,26 +161,28 @@ class MechanicsProblem(pp.ContactMechanics):
         """
         Assign variables to the nodes and edges of the grid bucket.
         """
-        gb = self.gb
-        for g, d in gb:
-            d[pp.PRIMARY_VARIABLES] = {self.displacement_variable: {"cells": self._Nd}}
+        mdg = self.mdg
+        for g, d in mdg.subdomains(return_data=True):
+            d[pp.PRIMARY_VARIABLES] = {self.displacement_variable: {"cells": self.nd}}
 
     def _assign_discretizations(self) -> None:
         """
         Assign discretizations to the nodes and edges of the grid bucket.
 
         """
-        gb = self.gb
+        mdg = self.mdg
         if not hasattr(self, "dof_manager"):
-            self.dof_manager = pp.DofManager(self.gb)
+            self.dof_manager = pp.DofManager(self.mdg)
 
-        eq_manager = pp.ad.EquationManager(self.gb, self.dof_manager)
-        Nd = self._Nd
-        g_primary: pp.Grid = gb.grids_of_dimension(Nd)[0]
+        eq_manager = pp.ad.EquationManager(self.mdg, self.dof_manager)
+        Nd = self.nd
+        g_primary: pp.Grid = self._nd_subdomain()
 
         mpsa_ad = mpsa_ad = pp.ad.MpsaAd(self.mechanics_parameter_key, [g_primary])
-        bc_ad = pp.ad.BoundaryCondition(self.mechanics_parameter_key, grids=[g_primary])
-        div = pp.ad.Divergence(grids=[g_primary], dim=g_primary.dim)
+        bc_ad = pp.ad.BoundaryCondition(
+            self.mechanics_parameter_key, subdomains=[g_primary]
+        )
+        div = pp.ad.Divergence(subdomains=[g_primary], dim=g_primary.dim)
 
         # Primary variables on Ad form
         u = eq_manager.variable(g_primary, self.displacement_variable)
@@ -172,11 +207,10 @@ class MechanicsProblem(pp.ContactMechanics):
         else:
             A, b = self.assembler.assemble_matrix_rhs()
 
-
         if self.params["solver_options"]["solver"] == "direct":
             print("Solving the linear system using direct solver")
             return spla.spsolve(A, b)
-        else: # hazmath
+        else:  # hazmath
             print("Solving the linear system using HAZmath solver")
 
             # cast to hazmath
@@ -186,8 +220,8 @@ class MechanicsProblem(pp.ContactMechanics):
             haznics.dvec_alloc(b.shape[0], u_haz)
 
             # if needed, output matrix, right hand side, and dofs
-            #haznics.dcsr_write_dcoo('A.dat', A_haz)
-            #haznics.dvector_write('b.dat', b_haz)
+            # haznics.dcsr_write_dcoo('A.dat', A_haz)
+            # haznics.dvector_write('b.dat', b_haz)
 
             # convert to BSR format
             A_haz_bsr = haznics.dcsr_2_dbsr(A_haz, 3)
@@ -223,21 +257,24 @@ class MechanicsProblem(pp.ContactMechanics):
             haznics.param_linear_solver_print(itsparam)
 
             # solve
-            haznics.linear_solver_dbsr_krylov_amg(A_haz_bsr, b_haz, u_haz, itsparam,amgparam)
+            haznics.linear_solver_dbsr_krylov_amg(
+                A_haz_bsr, b_haz, u_haz, itsparam, amgparam
+            )
 
             return u_haz.to_ndarray()
 
 
-mesh_args = {"mesh_size_bound": 0.2, "mesh_size_frac": 0.2, "mesh_size_min": 0.2}
+mesh_args = {"mesh_size_bound": 0.1, "mesh_size_frac": 0.1, "mesh_size_min": 0.1}
 
 
 mesh_type = "2d_no_fracture"
-#mesh_type = "2d_single_fracture"
-#mesh_type = "3d_no_fracture"
-#mesh_type = "3d_single_fracture"
+# mesh_type = "2d_single_fracture"
+# mesh_type = "3d_no_fracture"
+mesh_type = "3d_single_fracture"
 
-fracture_permeability = 1.0e0
-matrix_fracture_permeability = 1.0e0
+# Change lame parameters here
+lame_lambda = 1.0e0
+lame_mu = 1.0e0
 
 solver = "direct"
 solver_options = {"solver": solver}
@@ -246,18 +283,19 @@ model_params = {
     "grid_type": mesh_type,
     "mesh_size": mesh_args,
     "solver_options": solver_options,
-    "fracture_perm": fracture_permeability,
-    "matrix_fracture_perm": matrix_fracture_permeability,
+    "lame_lambda": lame_lambda,
+    "lame_mu": lame_mu,
 }
+
 
 model = MechanicsProblem(model_params)
 
 pp.run_stationary_model(model, {})
 
-gb = model.gb
-g = gb.grids_of_dimension(gb.dim_max())[0]
+mdg = model.mdg
+g = model._nd_subdomain()
 
-state = gb.node_props(g, pp.STATE)
+state = mdg.subdomain_data(g)[pp.STATE]
 u = state[model.displacement_variable]
 exp = pp.Exporter(g, "mechanics")
-exp.write_vtu({"ux": u[:: g.dim], "uy": u[1 :: g.dim]})
+# exp.write_vtu({"ux": u[:: g.dim], "uy": u[1 :: g.dim]})

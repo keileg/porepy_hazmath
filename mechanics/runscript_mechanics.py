@@ -61,7 +61,7 @@ class MechanicsProblem(pp.ContactMechanics):
             mdg = network.mesh(mesh_size)
             self.box = network.domain
 
-        if grid_type == "3d_no_fracture":
+        elif grid_type == "3d_no_fracture":
 
             # Domain is unit square
             domain = pp.utils.default_domains.CubeDomain([1, 1, 1])
@@ -238,9 +238,9 @@ class MechanicsProblem(pp.ContactMechanics):
 
         self._eq_manager = eq_manager
 
-    def assemble_and_solve_linear_system(self, tol: float) -> np.ndarray:
+    def solve_linear_system(self) -> np.ndarray:
 
-        A, b = self._eq_manager.assemble()
+        A, b = self.linear_system
 
         if self.params["solver_options"]["solver"] == "direct":
             print("Solving the linear system using direct solver")
@@ -301,11 +301,11 @@ class MechanicsProblem(pp.ContactMechanics):
 
 # mesh_type = "2d_no_fracture"
 # mesh_type = "2d_single_fracture"
-mesh_type = "2d_benchmark_complex"
+# mesh_type = "2d_benchmark_complex"
 # mesh_type = "3d_no_fracture"
-# mesh_type = "3d_single_fracture"
-mesh_type = "3d_regular"
-mesh_type = "3d_field"
+mesh_type = "3d_single_fracture"
+# mesh_type = "3d_regular"
+# mesh_type = "3d_field"
 
 if mesh_type == "2d_no_fracture":
     # In this case, mesh_size_frac will not be used, but it is needed for
@@ -321,7 +321,7 @@ elif mesh_type == "2d_benchmark_complex":
 if mesh_type == "3d_no_fracture":
     # In this case, mesh_size_frac will not be used, but it is needed for
     # consistency
-    mesh_args = {"mesh_size_bound": 0.1, "mesh_size_frac": 0.1}
+    mesh_args = {"mesh_size_bound": 0.1, "mesh_size_frac": 0.1, "mesh_size_min": 0.1}
 
 elif mesh_type == "3d_single_fracture":
     mesh_args = {"mesh_size_bound": 0.1, "mesh_size_frac": 0.1, "mesh_size_min": 0.1}
@@ -335,7 +335,8 @@ elif mesh_type == "3d_field":
 lame_lambda = 1.0e-1
 lame_mu = 1.0e0
 
-solver = "direct"
+# solver = "direct"
+solver = "hazmath"
 solver_options = {"solver": solver}
 
 model_params = {

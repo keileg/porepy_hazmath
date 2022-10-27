@@ -179,7 +179,7 @@ class EllipticProblem(pp.IncompressibleFlow):
         has_edge = len(edge_list) > 0
 
         mortar_proj = pp.ad.MortarProjections(
-            interfaces=edge_list, subdomains=grid_list, mdg=self.mdg, nd=1
+            interfaces=edge_list, subdomains=grid_list, mdg=self.mdg, dim=1
         )
 
         robin_ad = pp.ad.RobinCouplingAd(self.parameter_key, edge_list)
@@ -238,12 +238,10 @@ class EllipticProblem(pp.IncompressibleFlow):
     def _export(self):
         pass
 
-    def assemble_and_solve_linear_system(self, tol: float) -> np.ndarray:
-        """Use a direct solver for the linear system."""
+    def solve_linear_system(self) -> np.ndarray:
+        A, b = self.linear_system
 
         if self.solver_options["solver"] == "direct":
-            A, b = self._eq_manager.assemble()
-
             tic = time.time()
             print("System size: {b.size}")
             x = sps.linalg.spsolve(A, b)
@@ -259,24 +257,20 @@ class EllipticProblem(pp.IncompressibleFlow):
             dof_manager = self.dof_manager
             pressure_dofs = np.hstack(
                 [
-                    dof_manager.grid_and_variable_to_dofs(g, self.variable)
-                    for g, _ in self.mdg
+                    dof_manager.grid_and_variable_to_dofs(s, self.variable)
+                    for s in self.mdg.subdomains()
                 ]
             )
             mortar_dofs = np.hstack(
                 [
-                    dof_manager.grid_and_variable_to_dofs(e, self.mortar_variable)
-                    for e, _ in self.mdg.edges()
+                    dof_manager.grid_and_variable_to_dofs(i, self.mortar_variable)
+                    for i in self.mdg.interfaces()
                 ]
             )
 
             # This is where the hazmath magic should enter.
             # raise NotImplementedError("This is where the magic is missing")
 
-            # assemble
-            tic = time.time()
-            A, b = self._eq_manager.assemble()
-            print("Assemble linear system in {} seconds".format(time.time() - tic))
             print(f"System size: {b.size}")
 
             # cast to hazmath
@@ -404,7 +398,7 @@ elif grid_type == "3d_field":
 # solver = "direct"
 # Uncomment the next line to activate hazmath. This will make the code crash
 # at the place where the hazmath interface should be implemented.
-solver = "haznics"
+solver = "hazmath"
 solver_options = {"solver": solver}
 
 for fracture_permeability in fracture_permeability_range:
